@@ -1,0 +1,148 @@
+#!/usr/bin/env python
+## --------------------------------------------------------------------
+## smtpproxyd - Simple SMTP Proxy server
+##
+## Authors   : Maciek Ruckgaber
+## License   : GPL Version 2
+## --------------------------------------------------------------------
+## This program is free software; you can redistribute it and/or modify
+## it under the terms of the GNU General Public License as published by
+## the Free Software Foundation; either version 2 of the License, or
+## (at your option) any later version.
+## This program is distributed in the hope that it will be useful,
+## but WITHOUT ANY WARRANTY; without even the implied warranty of
+## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+## GNU General Public License for more details.
+## --------------------------------------------------------------------
+
+"""
+  Simple SMTP Proxy
+
+  smtpproxyd is a simple service application that proxies non-authed SMTP mail
+  to authed SMTP servers using SSL/TLS.
+
+  Many old legacy applications use non modifiable mail sending libraries which
+  use simple SMTP. It is now frequent to delegate this tasks to third party
+  authenticated SMTPs.
+
+  Three commands are supported:
+    listen  Will setup a local unauthed SMTP service wich will listen
+            on provided HOST and PORT, proxying all mail using the
+            provided remote SMTP information.
+
+    testupsteamsmpt   Will test the remote SMTP communication sending a test mail.
+    testlocalsmtp  Will test a local server started using the listen command.
+
+  Usage:
+    smtpproxyd listen [options] <remote-host> <remote-username>
+    smtpproxyd testupstreamsmtp [options] -r EMAIL <remote-host> <remote-username>
+    smtpproxyd testlocalsmtp [options] -r EMAIL
+
+  Options:
+    -h HOST --host HOST         Host [default: 127.0.0.1] on which the local
+                                SMTP server will run.  Note that you should
+                                trust all users on the host, and you should
+                                not run this on public interfaces as this would
+                                create an open relay straight through your
+                                authed SMTP provider.
+    -p PORT --port=PORT         Port [default: 1025] on which smtpproxyd will
+                                listen.
+    -P PORT --remote-port=PORT  Remote SMTP service port [default: 587].
+    -r EMAIL --rcpt=EMAIL       Email address of test recipient.
+"""
+
+import asyncore
+import email
+import smtpd
+import smtplib
+from docopt import docopt
+from email.mime.text import MIMEText
+from getpass import getpass
+
+MSG_GETPASS = 'Remote SMTP pass for {}: '
+
+
+def send_message(smtp_host, smtp_port, smtp_user, smtp_pass, rcpttos, message, debug=False):
+  """
+  Tests the remote authed SMTP server settings
+  """
+  server = smtplib.SMTP(smtp_host)
+  server.set_debuglevel(debug)
+  server.starttls()
+  server.login(smtp_user, smtp_pass)
+  try:
+    server.sendmail(smtp_user, rcpttos, message.as_string())
+  finally:
+    server.quit()
+
+
+class SMTPServerProxy(smtpd.SMTPServer):
+
+  def __init__(self, localsrv, smtp_host, smtp_port, smtp_user, smtp_pass):
+    smtpd.SMTPServer.__init__(self, localsrv, None)
+    self.smtp_host = smtp_host
+    self.smtp_port = smtp_port
+    self.smtp_user = smtp_user
+    self.smtp_pass = smtp_pass
+
+  def process_message(self, peer, mailfrom, rcpttos, data):
+
+    print 'Receiving message from:', peer
+    print 'Message addressed from:', mailfrom
+    print 'Message addressed to  :', rcpttos
+    print 'Message length        :', len(data)
+
+    msg = email.message_from_string(data)
+    send_message(
+      self.smtp_host,
+      self.smtp_port,
+      self.smtp_user,
+      self.smtp_pass,
+      rcpttos,
+      msg
+    )
+    return
+
+
+if __name__ == '__main__':
+
+  args = docopt(__doc__, version='0.1alpha')
+
+  if args['listen']:
+    remote_smtp_pass = getpass(MSG_GETPASS.format(args['<remote-username>']))
+    server = SMTPServerProxy(
+      (args['--host'], int(args['--port'])),
+      args['<remote-host>'],
+      args['--remote-port'],
+      args['<remote-username>'],
+      remote_smtp_pass
+    )
+    try:
+      asyncore.loop()
+    except KeyboardInterrupt:
+      print "Bye Bye !"
+
+  elif args['testupstreamsmtp']:
+    remote_smtp_pass = getpass(MSG_GETPASS.format(args['<remote-username>']))
+    msg = MIMEText('Your SMTP server is accepting incoming messages :-)')
+    msg['Subject'] = "smtpproxyd test"
+
+    msg = MIMEText('Your SMTP server is accepting incoming messages :-)')
+    msg['Subject'] = 'smtpproxyd test'
+    send_message(
+      args['<remote-host>'],
+      args['--remote-port'],
+      args['<remote-username>'],
+      remote_smtp_pass,
+      [args['--rcpt']],
+      msg,
+      debug=True
+    )
+
+  elif args['testlocalsmtp']:
+    rcpt_mail = raw_input("Recipient e-mail: ")
+    msg = MIMEText('This is a successful test-message body')
+    msg['Subject'] = 'Just a test message'
+    server = smtplib.SMTP('127.0.0.1', 1025)
+    server.set_debuglevel(True)
+    server.sendmail('smtpproxyd@localhost', rcpt_mail, msg.as_string())
