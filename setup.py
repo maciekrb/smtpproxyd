@@ -11,7 +11,7 @@ if float("%d.%d" % sys.version_info[:2]) < 2.4:
 setup(
   ## Content description
   name='smtpproxyd',
-  version='0.1-alpha',
+  version='0.2-alpha',
   scripts=['smtpproxyd'],
 
   ## Packaging details

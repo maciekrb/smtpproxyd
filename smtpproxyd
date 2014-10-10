@@ -59,7 +59,7 @@ from docopt import docopt
 from email.mime.text import MIMEText
 from getpass import getpass
 
-MSG_GETPASS = 'Remote SMTP pass for {}: '
+MSG_GETPASS = 'Remote SMTP pass for {0}: '
 
 
 def send_message(smtp_host, smtp_port, smtp_user, smtp_pass, rcpttos, message, debug=False):
